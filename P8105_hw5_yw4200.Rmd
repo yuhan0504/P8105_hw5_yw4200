@@ -9,22 +9,181 @@ output: github_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Problem 1
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The Washington Post has gathered data on homicides in 50 large U.S. cities and made the data available through a GitHub repository here. You can read their accompanying article here.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Describe the raw data. Create a city_state variable (e.g. “Baltimore, MD”) and then summarize within cities to obtain the total number of homicides and the number of unsolved homicides (those for which the disposition is “Closed without arrest” or “Open/No arrest”).
+```{r}
+library(dplyr)
+# import and summarize dataset
+homicide <- read.csv("./local_data/homicide-data.csv")
+summary(homicide)
 
-```{r cars}
-summary(cars)
+# create a city_state variable 
+homicide_add <- homicide |>
+  mutate(city_state = paste(city, state, sep = ", ")) 
+head(homicide_add)
+
+# compute the number of homicides within cities
+homicide_add |>
+  group_by(city) |>
+  summarise(
+    total_homicides = n(), 
+    unsolved_homicides = sum(disposition %in% c("Closed without arrest", "Open/No arrest"))
+    )
+
+```
+Description of the raw data:
+
+Over the course of the last ten years, The Washington Post gathered information on over 52,000 criminal homicides in 50 of the biggest American cities. The location of the murder, whether an arrest was made, and, for the most part, the basic demographics of each victim were among the data. The raw data includes `r length(names(homicide))` key variables, such as `r names(homicide)`. And the data has `r nrow(homicide)` observations.
+
+For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+```{r}
+library(broom)
+# filter the dataset
+balt_data <- homicide_add |>
+  filter(city_state == "Baltimore, MD")
+
+# use the prop.test to estimate the proportion of homicides that are unsolved
+proptest_result <-
+  prop.test(
+    sum(balt_data$disposition %in% c("Closed without arrest", "Open/No arrest")),
+    length(balt_data$disposition),
+    conf.level = 0.95
+)
+
+tidy_result <- tidy(proptest_result)
+
+
+# pull the estimated proportion and confidence intervals
+paste("estimated proportion =", pull(tidy_result,estimate))
+paste("confidence intervals =", "[", pull(tidy_result, conf.low), pull(tidy_result, conf.high), "]")
+```
+
+Now run prop.test for each of the cities in your dataset, and extract both the proportion of unsolved homicides and the confidence interval for each. Do this within a “tidy” pipeline, making use of purrr::map, purrr::map2, list columns and unnest as necessary to create a tidy dataframe with estimated proportions and CIs for each city.
+```{r}
+library(purrr)
+
+# create a prop.test function for cities
+proptest_city <- function(city,data) {
+  proptest_result <- prop.test(
+    sum(data$disposition %in% c("Closed without arrest", "Open/No arrest")),
+    length(data$disposition),
+    conf.level = 0.95
+  )
+  tidy_result <- tidy(proptest_result)
+  tidy_result$city <- city
+  return(tidy_result)
+}
+
+# nest the information except city and state
+homicide_nest <- homicide |>
+  select(city,state,everything()) |> 
+  nest(others = uid:disposition)
+
+# use map2 function to prop.test each city
+results_list <- map2(
+  homicide_nest$city,
+  homicide_nest$others,
+  ~proptest_city(.x, .y)
+)
+
+combined_results <- map_dfr(results_list, bind_rows) 
+
+# create a tidy dataframe with estimated proportions and CIs
+combined_results |> 
+  select(city,estimate,conf.low,conf.high) |>
+  mutate(CIs = paste0("[",conf.low,",",conf.high, "]"))
+```
+Create a plot that shows the estimates and CIs for each city – check out geom_errorbar for a way to add error bars based on the upper and lower limits. Organize cities according to the proportion of unsolved homicides.
+
+```{r}
+# Create a plot that shows the estimates and CIs for each city
+library(ggplot2)
+
+ggplot(combined_results, aes(x = estimate, y = reorder(city, estimate))) +
+  geom_point(aes(x = estimate), size = 2) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.1) +
+  labs(title = "Proportion of unsolved homicides for each city",
+       x = "Proportion",
+       y = "City") +
+  theme_light()
+```
+
+```{r}
+homicide_nest
+```
+```{r}
+library(purrr)
+library(tidyverse)
+output = vector("list", 100)
+
+sim_mean_sd = function(n, mu = 2, sigma = 3) {
+  
+  sim_data = tibble(
+    x = rnorm(n, mean = mu, sd = sigma),
+  )
+  
+  sim_data |> 
+    summarize(
+      mu_hat = mean(x),
+      sigma_hat = sd(x)
+    )
+}
+for (i in 1:100) {
+  output[[i]] = sim_mean_sd(30)
+}
+
+sim_results = bind_rows(output)
+
+
+
+sim_results_df = 
+  expand_grid(
+    sample_size = c(30, 60, 120, 240),
+    iter = 1:10
+  ) |> 
+  mutate(
+    estimate_df = map(sample_size, sim_mean_sd)
+  ) |> 
+  unnest(estimate_df)
+
+sim_results_df
 ```
 
 ## Including Plots
 
 You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+sim_regression = function(n, beta0 = 2, beta1 = 3) {
+  
+  sim_data = 
+    tibble(
+      x = rnorm(n, mean = 1, sd = 1),
+      y = beta0 + beta1 * x + rnorm(n, 0, 1)
+    )
+  
+  ls_fit = lm(y ~ x, data = sim_data)
+  
+  tibble(
+    beta0_hat = coef(ls_fit)[1],
+    beta1_hat = coef(ls_fit)[2]
+  )
+}
+
+sim_results_df = 
+  expand_grid(
+    sample_size = 30,
+    iter = 1:500
+  ) |> 
+  mutate(
+    estimate_df = map(sample_size, sim_regression)
+  ) |> 
+  unnest(estimate_df)
+
+sim_results_df
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
