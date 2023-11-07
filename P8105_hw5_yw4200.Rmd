@@ -175,7 +175,7 @@ conexp_plot
 ```
 Comments:
 
-The experimental group's subjects (who range in id from 11 to 20) have higher observations over time than the control group's subjects (who range in id from 1 to 10). And the experimental group has an increasing trend as the week goes on.
+The experimental group's subjects (who range in id from 11 to 20) have higher observations over time than the control group's subjects (who range in id from 1 to 10). The observations of experimental group has an increasing trend as the week goes on, while the observations of control group stay stable as the week goes on.
 
 
 Problem 3
@@ -184,134 +184,124 @@ When designing an experiment or analysis, a common question is whether it is lik
 First set the following design elements:
 
 Fix n=30
+
 Fix σ=5
+
 Set μ=0
-. Generate 5000 datasets from the model
 
-x∼Normal[μ,σ]
+Generate 5000 datasets from the model x∼Normal[μ,σ]
 
-For each dataset, save μ̂ 
- and the p-value arising from a test of H:μ=0
- using α=0.05
-. Hint: to obtain the estimate and p-value, use broom::tidy to clean the output of t.test.
-
-Repeat the above for μ={1,2,3,4,5,6}
-, and complete the following:
-
-Make a plot showing the proportion of times the null was rejected (the power of the test) on the y axis and the true value of μ
- on the x axis. Describe the association between effect size and power.
-Make a plot showing the average estimate of μ̂ 
- on the y axis and the true value of μ
- on the x axis. Make a second plot (or overlay on the first) the average estimate of μ̂ 
- only in samples for which the null was rejected on the y axis and the true value of μ
- on the x axis. Is the sample average of μ̂ 
- across tests for which the null is rejected approximately equal to the true value of μ
-? Why or why not?
-
+For each dataset, save μ̂ and the p-value arising from a test of H:μ=0, using α=0.05. Hint: to obtain the estimate and p-value, use broom::tidy to clean the output of t.test.
 ```{r}
-homicide_nest
-```
-```{r}
-library(purrr)
-library(tidyverse)
-output = vector("list", 100)
-
-sim_mean_sd = function(n, mu = 2, sigma = 3) {
+# define a function to compute t.test
+t_test = function(n = 30, mu = 0, sigma = 5) {
   
-  sim_data = tibble(
+  test_data = tibble(
     x = rnorm(n, mean = mu, sd = sigma),
   )
   
-  sim_data |> 
-    summarize(
-      mu_hat = mean(x),
-      sigma_hat = sd(x)
-    )
-}
-for (i in 1:100) {
-  output[[i]] = sim_mean_sd(30)
+  broom::tidy(t.test(test_data, mu = mu, alternative = "two.sided",conf.level = 0.95))
+ 
 }
 
-sim_results = bind_rows(output)
-
-
-
-sim_results_df = 
-  expand_grid(
-    sample_size = c(30, 60, 120, 240),
-    iter = 1:10
-  ) |> 
-  mutate(
-    estimate_df = map(sample_size, sim_mean_sd)
-  ) |> 
-  unnest(estimate_df)
-
-sim_results_df
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r}
-sim_regression = function(n, beta0 = 2, beta1 = 3) {
-  
-  sim_data = 
-    tibble(
-      x = rnorm(n, mean = 1, sd = 1),
-      y = beta0 + beta1 * x + rnorm(n, 0, 1)
-    )
-  
-  ls_fit = lm(y ~ x, data = sim_data)
-  
-  tibble(
-    beta0_hat = coef(ls_fit)[1],
-    beta1_hat = coef(ls_fit)[2]
-  )
-}
-
-sim_results_df = 
-  expand_grid(
-    sample_size = 30,
-    iter = 1:500
-  ) |> 
-  mutate(
-    estimate_df = map(sample_size, sim_regression)
-  ) |> 
-  unnest(estimate_df)
-
-sim_results_df
-```
-
-
-```{r}
-one_samp_ttest = function(n = 30, sigma = 5) {
-  
-one_samp_data = 
-  tibble(
-      rnorm(n = 30, mean = 0, sd = 1),
-    ) 
-  
-broom::tidy(t.test(one_samp_data, mu = 0, alternative = "two.sided"))
-  
-}
-```
-
-Generate 5000 datasets from the model.
-
-```{r}
-ttest_results_df = 
+# Generate 5000 datasets
+results_df = 
   expand_grid(
     sample_size = 30,
     iter = 1:5000
   ) |> 
   mutate(
-    estimate_df = map_dfr(sample_size, one_samp_ttest)
+    estimate_df = map(sample_size, t_test)
   ) |> 
   unnest(estimate_df)
 
-ttest_results_df |>
+# print the result
+results_df |>
   select(estimate, p.value)
+
+results_df1 <- results_df |>
+  mutate(true_mu = 0)
+```
+Repeat the above for μ={1,2,3,4,5,6}, and complete the following:
+```{r}
+t_test2 = function(mu, sigma = 5) {
+  sim_data <- tibble(
+    x = rnorm(30, mean = mu, sd = sigma)
+    )
+  broom::tidy(t.test(sim_data))
+
+}
+
+
+results_df2 = 
+  expand_grid(
+    true_mu = c(1,2,3,4,5,6),
+    iter = 1:5000
+  ) |> 
+  mutate(
+    estimate_df = map(true_mu, t_test2)
+  ) |> 
+  unnest(estimate_df) 
+
+result_combine = bind_rows(results_df1,results_df2)
+
+result_combine
+```
+Make a plot showing the proportion of times the null was rejected (the power of the test) on the y axis and the true value of μ on the x axis. Describe the association between effect size and power.
+```{r}
+reject_plot <- result_combine |>
+  group_by(true_mu) |>
+  summarize(estimate = mean(estimate), power = mean(p.value < 0.05)) |>
+  ggplot(aes(x = true_mu,y = power)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0,6)) +
+  labs(x = "True Mu",y = "Power of the Test",title = "Proportion of times the null was rejected") +
+  theme_minimal()
+
+reject_plot
+```
+Description:
+
+It is expected that the power of the test will increase in association with the effect size, which is the difference between the true μ and the null hypothesis value. In other words, a larger effect means that the test can detect it more accurately.
+
+Make a plot showing the average estimate of μ̂ on the y axis and the true value of μ on the x axis. Make a second plot (or overlay on the first) the average estimate of μ̂ only in samples for which the null was rejected on the y axis and the true value of μ on the x axis. Is the sample average of μ̂ across tests for which the null is rejected approximately equal to the true value of μ? Why or why not?
+
+```{r}
+# a plot showing the average estimate and the true value of mu
+estimate_mu = result_combine |>
+  group_by(true_mu) |>
+  summarise(avg_estimate = mean(estimate))
+
+mu_plot <- estimate_mu |>
+  ggplot(aes(x = true_mu, y = avg_estimate)) +
+  geom_point() +
+  geom_line() +
+  labs(x = "True Mu",y = "Average Estimate Mu",title = "Average estimate and true value of mu") +
+  scale_x_continuous(breaks = seq(0,6)) + 
+  scale_y_continuous(breaks = seq(0,6)) + 
+  theme_minimal()
+
+mu_plot
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+# a second plot for the average estimate of mu which the null was rejected and the true value of mu
+reject_mu = result_combine |>
+  filter(p.value < 0.05) |>
+  group_by(true_mu) |>
+  summarise(avg_estimate = mean(estimate))
+
+reject_mu_plot <- reject_mu |>
+  ggplot(aes(x = true_mu, y = avg_estimate)) +
+  geom_point() +
+  geom_line() +
+  labs(x = "True Mu",y = "Average Estimate Mu",title = "Average estimate(which the null was rejected) and true value of mu") +
+  scale_x_continuous(breaks = seq(0,6)) + 
+  scale_y_continuous(breaks = seq(0,6)) + 
+  theme_minimal()
+
+reject_mu_plot
+
+```
+The sample average of mu across tests for which the null is rejected approximately equal to the true value of mu. 
